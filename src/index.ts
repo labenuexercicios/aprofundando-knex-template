@@ -11,10 +11,10 @@ app.listen(3003, () => {
     console.log(`Servidor rodando na porta ${3003}`)
 })
 
+
 app.get("/ping", async (req: Request, res: Response) => {
-    try {
-        res.status(200).send({ message: "Pong!" })
-    } catch (error) {
+    try { res.status(200).send({ message: "Pong!" }) }
+    catch (error) {
         console.log(error)
 
         if (req.statusCode === 200) {
@@ -31,11 +31,9 @@ app.get("/ping", async (req: Request, res: Response) => {
 
 app.get("/bands", async (req: Request, res: Response) => {
     try {
-        const result = await db.raw(`
-            SELECT * FROM bands;
-        `)
-
+        const result = await db.select("*").from("bands")
         res.status(200).send(result)
+
     } catch (error) {
         console.log(error)
 
@@ -71,10 +69,7 @@ app.post("/bands", async (req: Request, res: Response) => {
             throw new Error("'id' e 'name' devem possuir no mínimo 1 caractere")
         }
 
-        await db.raw(`
-            INSERT INTO bands (id, name)
-            VALUES ("${id}", "${name}");
-        `)
+        await db.insert({ id: id, name: name }).into("bands")
 
         res.status(200).send("Banda cadastrada com sucesso")
     } catch (error) {
@@ -125,20 +120,23 @@ app.put("/bands/:id", async (req: Request, res: Response) => {
             }
         }
 
-        const [ band ] = await db.raw(`
+        const [band] = await db.raw(`
             SELECT * FROM bands
             WHERE id = "${idToEdit}";
         `) // desestruturamos para encontrar o primeiro item do array
 
         if (band) {
-            await db.raw(`
-                UPDATE bands
-                SET
-                    id = "${newId || band.id}",
-                    name = "${newName || band.name}"
-                WHERE
-                    id = "${idToEdit}";
-            `)
+            // await db.update(`
+            //     UPDATE bands
+            //     SET
+            //         id = "${newId || band.id}",
+            //         name = "${newName || band.name}"
+            //     WHERE
+            //         id = "${idToEdit}";
+            // `)
+
+            const updatedBand = { id: newId || band.id, name: newName || band.name }
+            await db("bands").update(updatedBand).where({ id: idToEdit })
         } else {
             res.status(404)
             throw new Error("'id' não encontrada")
@@ -162,9 +160,7 @@ app.put("/bands/:id", async (req: Request, res: Response) => {
 
 app.get("/songs", async (req: Request, res: Response) => {
     try {
-        const result = await db.raw(`
-            SELECT * FROM songs;
-        `)
+        const result = await db.select("*").from("songs")
 
         res.status(200).send(result)
     } catch (error) {
@@ -188,6 +184,8 @@ app.post("/songs", async (req: Request, res: Response) => {
         const name = req.body.name
         const bandId = req.body.bandId
 
+        const newSong = { id: id, name: name, band_id: bandId }
+
         if (typeof id !== "string") {
             res.status(400)
             throw new Error("'id' inválido, deve ser string")
@@ -208,10 +206,7 @@ app.post("/songs", async (req: Request, res: Response) => {
             throw new Error("'id', 'name' e 'bandId' devem possuir no mínimo 1 caractere")
         }
 
-        await db.raw(`
-            INSERT INTO songs (id, name, band_id)
-            VALUES ("${id}", "${name}", "${bandId}");
-        `)
+        await db("songs").insert(newSong)
 
         res.status(200).send("Música cadastrada com sucesso")
     } catch (error) {
@@ -236,6 +231,7 @@ app.put("/songs/:id", async (req: Request, res: Response) => {
         const newId = req.body.id
         const newName = req.body.name
         const newBandId = req.body.bandId
+
 
         if (newId !== undefined) {
 
@@ -276,27 +272,21 @@ app.put("/songs/:id", async (req: Request, res: Response) => {
             }
         }
 
-        const [ song ] = await db.raw(`
-            SELECT * FROM songs
-            WHERE id = "${idToEdit}";
-        `) // desestruturamos para encontrar o primeiro item do array
+        const [song] = await db("songs").where({ id: idToEdit })
 
         if (song) {
-            await db.raw(`
-                UPDATE songs
-                SET
-                    id = "${newId || song.id}",
-                    name = "${newName || song.name}",
-                    band_id = "${newBandId || song.band_id}"
-                WHERE
-                    id = "${idToEdit}";
-            `)
-        } else {
+            await db("songs").update({
+                id: newId || song.id,
+                name: newName || song.name,
+                band_id: newBandId || song.band_id
+            }).where({ id: idToEdit })
+            res.status(200).send({ message: "Atualização realizada com sucesso" })
+        }
+        else {
             res.status(404)
             throw new Error("'id' não encontrada")
         }
 
-        res.status(200).send({ message: "Atualização realizada com sucesso" })
     } catch (error) {
         console.log(error)
 
@@ -309,5 +299,60 @@ app.put("/songs/:id", async (req: Request, res: Response) => {
         } else {
             res.send("Erro inesperado")
         }
+    }
+})
+
+app.delete("/bands/:id", async (req: Request, res: Response) => {
+    try {
+        let bandIdToDelete = req.params.id
+
+        if (bandIdToDelete === ":id") {
+            res.status(400)
+            throw new Error("Deve-se ser informado o 'id' da banda para ser deletada.")
+        }
+
+        else {
+            const [checkBandId] = await db("bands").where({ id: bandIdToDelete })
+
+            if (checkBandId) {
+                await db("bands").del().where({ id: bandIdToDelete })
+                res.status(200).send("Banda deletada com sucesso.")
+            }
+        }
+    }
+    catch (error: any) {
+        console.log(error)
+        if (req.statusCode === 200) {
+            res.status(500)
+        }
+        console.log(error.message)
+    }
+}
+)
+
+app.delete("/songs/:id", async (req: Request, res: Response) => {
+
+    try {
+        const songIdToDelete = req.params.id
+
+        if (songIdToDelete === ":id") {
+            res.status(400)
+            throw new Error("Deve-se ser informado um 'id' para deletar a música.")
+        }
+        else {
+            const [checkSongId] = await db("songs").where({ id: songIdToDelete })
+            if (checkSongId) {
+                await db("songs").del().where({ id: songIdToDelete })
+                res.status(200).send("Música deletada com sucesso!")
+            }
+        }
+    }
+
+    catch (error: any) {
+        console.log(error)
+        if (req.statusCode === 200) {
+            res.status(500)
+        }
+        res.send(error.message)
     }
 })
